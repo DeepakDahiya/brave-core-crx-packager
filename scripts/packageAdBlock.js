@@ -4,7 +4,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // Example usage:
-//  npm run package-ad-block -- --binary "/Applications/Google\\ Chrome\\ Canary.app/Contents/MacOS/Google\\ Chrome\\ Canary" --key-file path/to/ad-block-updater-regional-component-keys
+//  pnpm package-ad-block -- --binary "/Applications/Google\\ Chrome\\ Canary.app/Contents/MacOS/Google\\ Chrome\\ Canary" --keys-directory path/to/ad-block-updater-regional-component-keys
 
 import commander from 'commander'
 import fs from 'fs-extra'
@@ -20,8 +20,16 @@ async function stageFiles (version, outputDir) {
   util.copyManifestWithVersion(originalManifest, outputDir, version)
 }
 
+const generateVerifiedContents = (stagingDir, signingKey) => {
+  util.generateAndWriteVerifiedContents(
+    stagingDir,
+    ['resources.json', 'list.txt', 'list_catalog.json'],
+    signingKey
+  )
+}
+
 const postNextVersionWork = (componentSubdir, key, publisherProofKey,
-  binary, localRun, version, contentHash) => {
+  publisherProofKeyAlt, binary, localRun, version, contentHash, verifiedContentsKey) => {
   const stagingDir = path.join('build', 'ad-block-updater', componentSubdir)
   const crxOutputDir = path.join('build', 'ad-block-updater')
   const crxFile = path.join(crxOutputDir, `ad-block-updater-${componentSubdir}.crx`)
@@ -32,9 +40,10 @@ const postNextVersionWork = (componentSubdir, key, publisherProofKey,
       fs.unlinkSync(contentHashFile)
     }
     if (!localRun) {
+      generateVerifiedContents(stagingDir, verifiedContentsKey)
       const privateKeyFile = path.join(key, `ad-block-updater-${componentSubdir}.pem`)
       util.generateCRXFile(binary, crxFile, privateKeyFile, publisherProofKey,
-        stagingDir)
+        publisherProofKeyAlt, stagingDir)
     }
     if (contentHash !== undefined) {
       fs.writeFileSync(contentHashFile, contentHash)
@@ -48,8 +57,16 @@ const getOriginalManifest = (componentSubdir) => {
   return path.join(manifestsDir, componentSubdir, 'manifest.json')
 }
 
-const processComponent = (binary, endpoint, region, keyDir,
-  publisherProofKey, localRun, componentSubdir) => {
+const processComponent = (
+  binary,
+  endpoint,
+  region,
+  keyDir,
+  publisherProofKey,
+  publisherProofKeyAlt,
+  localRun,
+  verifiedContentsKey,
+  componentSubdir) => {
   const originalManifest = getOriginalManifest(componentSubdir)
 
   // TODO - previous download failures should prevent the attempt to package the component.
@@ -63,7 +80,7 @@ const processComponent = (binary, endpoint, region, keyDir,
 
   let fileToHash
   if (componentSubdir === regionalCatalogComponentId) {
-    fileToHash = 'regional_catalog.json'
+    fileToHash = 'list_catalog.json'
   } else if (componentSubdir === resourcesComponentId) {
     fileToHash = 'resources.json'
   } else {
@@ -72,22 +89,25 @@ const processComponent = (binary, endpoint, region, keyDir,
 
   let contentHash
   if (fileToHash !== undefined) {
+    // Increase this number if you want to recreate adblock components,
+    // even if the hash of the content file has not changed.
+    const contentHashVersion = 1
     const contentFile = path.join('build', 'ad-block-updater', componentSubdir, fileToHash)
-    contentHash = util.generateSHA256HashOfFile(contentFile)
+    contentHash = util.generateVersionedSHA256HashOfFile(contentFile, contentHashVersion)
   }
 
   if (!localRun) {
     util.getNextVersion(endpoint, region, id, contentHash).then((version) => {
       if (version !== undefined) {
         postNextVersionWork(componentSubdir, keyDir, publisherProofKey,
-          binary, localRun, version, contentHash)
+          publisherProofKeyAlt, binary, localRun, version, contentHash, verifiedContentsKey)
       } else {
         console.log('content for ' + id + ' was not updated, skipping!')
       }
     })
   } else {
     postNextVersionWork(componentSubdir, undefined, publisherProofKey,
-      binary, localRun, '1.0.0', contentHash)
+      publisherProofKeyAlt, binary, localRun, '1.0.0', contentHash, verifiedContentsKey)
   }
 }
 
@@ -108,7 +128,9 @@ const processJob = async (commander, keyDir) => {
     .forEach(processComponent.bind(null, commander.binary, commander.endpoint,
       commander.region, keyDir,
       commander.publisherProofKey,
-      commander.localRun))
+      commander.publisherProofKeyAlt,
+      commander.localRun,
+      commander.verifiedContentsKey))
 }
 
 util.installErrorHandlers()

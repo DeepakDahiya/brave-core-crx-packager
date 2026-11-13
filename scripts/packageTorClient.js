@@ -3,7 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // Example usage:
-// npm run package-tor-client -- --binary "/Applications/Google\\ Chrome\\ Canary.app/Contents/MacOS/Google\\ Chrome\\ Canary" --keys-directory path/to/key/dir
+// pnpm package-tor-client -- --binary "/Applications/Google\\ Chrome\\ Canary.app/Contents/MacOS/Google\\ Chrome\\ Canary" --keys-directory path/to/key/dir
 
 import commander from 'commander'
 import crypto from 'crypto'
@@ -18,8 +18,8 @@ const downloadTorClient = (platform) => {
   const torPath = path.join('build', 'tor-client-updater', 'downloads')
   const torS3Prefix = process.env.S3_DEMO_TOR_PREFIX
 
-  const torVersion = '0.4.8.10'
-  const braveVersion = '1'
+  const torVersion = '0.4.9.16'
+  const braveVersion = '0'
   const exeSuffix = platform === 'win32' ? '.exe' : ''
   const torFilename = `tor-${torVersion}-${platform}-brave-${braveVersion}`
   const torURL = torS3Prefix + torFilename + exeSuffix
@@ -28,16 +28,16 @@ const downloadTorClient = (platform) => {
 
   switch (platform) {
     case 'darwin':
-      sha512Tor = '81918d1171d8bda3102b031c7d7c25fa78bdb03033962ed6e89518e1deab8cac8282c6d56e8fd9a3dff683447e305858b52c5f14883dd28b04da5084895b54ef'
+      sha512Tor = 'b280a44a197db4769f80f5c52799e1f9c85f1d817e2fbeb36d5a273bdde891fff858362d7de9725f806ba12a5d394de2972199077b6748c3707e2a436876ad13'
       break
     case 'linux':
-      sha512Tor = 'dac5077f2467339f4a58a9e3592c55a1584b40b36df7447ab71c43f56185f182dbf5f89972899dcbb330952452d1a8735f76f87f856957149327ace673ba956c'
+      sha512Tor = 'c9f5bd5fc53300365017a64075b3f16fc6d73686a8b61c44c3cde52365915de7ef85bb9fedeeb992b7cf8013497a914035332e7a950c841073804c3eba93a5d8'
       break
     case 'linux-arm64':
-      sha512Tor = '4c9ee416a0063c5f26fbc42e3dd413d8160ed165c1ff46d62a6a03069acd28254f154f48a6f9aeb4a9793b15f465d27bbb54aa0005e959c0a8e6eb2dce613634'
+      sha512Tor = '5fde524a44ea84af84bd0cb2b12110883b1c73137ccd151dc4eff94a1c6e07cc1b7adf3c5029c3ae98c6bde2d91802b7b6c732ee4f6c276169b142d281462722'
       break
     case 'win32':
-      sha512Tor = 'fed73039c9c809f309cc9a72f415576ca097adc76ce90769528fda7170a35c32e9c41ee62d2a7d8655f2c18bd0e1c447fbf01efd46d89abb3ff7af56468f179a'
+      sha512Tor = '7d40268c7c66775f2ff1189303ae533f0a6cd71420621b8f914fa4762beb5cf2166c9d38f5bb656d33d66612ec158524f4ced739a0a79c146e2220e0efa35b14'
       break
     default:
       throw new Error('Tor client download failed; unrecognized platform: ' + platform)
@@ -68,7 +68,7 @@ const getOriginalManifest = (platform) => {
 }
 
 const packageTorClient = (binary, endpoint, region, platform, key,
-  publisherProofKey) => {
+  publisherProofKey, publisherProofKeyAlt) => {
   const originalManifest = getOriginalManifest(platform)
   const parsedManifest = util.parseManifest(originalManifest)
   const id = util.getIDFromBase64PublicKey(parsedManifest.key)
@@ -81,7 +81,7 @@ const packageTorClient = (binary, endpoint, region, platform, key,
     const privateKeyFile = !fs.lstatSync(key).isDirectory() ? key : path.join(key, `tor-client-updater-${platform}.pem`)
     stageFiles(platform, torClient, version, stagingDir)
     util.generateCRXFile(binary, crxFile, privateKeyFile, publisherProofKey,
-      stagingDir)
+      publisherProofKeyAlt, stagingDir)
     console.log(`Generated ${crxFile} with version number ${version}`)
   })
 }
@@ -122,12 +122,8 @@ if (fs.existsSync(commander.keyFile)) {
 }
 
 util.createTableIfNotExists(commander.endpoint, commander.region).then(() => {
-  packageTorClient(commander.binary, commander.endpoint, commander.region,
-    'darwin', keyParam, commander.publisherProofKey)
-  packageTorClient(commander.binary, commander.endpoint, commander.region,
-    'linux', keyParam, commander.publisherProofKey)
-  packageTorClient(commander.binary, commander.endpoint, commander.region,
-    'linux-arm64', keyParam, commander.publisherProofKey)
-  packageTorClient(commander.binary, commander.endpoint, commander.region,
-    'win32', keyParam, commander.publisherProofKey)
+  for (const platform of ['darwin', 'linux', 'linux-arm64', 'win32']) {
+    packageTorClient(commander.binary, commander.endpoint, commander.region,
+      platform, keyParam, commander.publisherProofKey, commander.publisherProofKeyAlt)
+  }
 })

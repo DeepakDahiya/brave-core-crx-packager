@@ -3,28 +3,16 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // Example usage:
-//  npm run wallet-data-files-updater -- --binary "/Applications/Google\\ Chrome\\ Canary.app/Contents/MacOS/Google\\ Chrome\\ Canary" --key-file path/to/wallet-data-files-updater.pem
+//  GH_TOKEN=... pnpm package-wallet-data-files -- --binary "/Applications/Google\\ Chrome\\ Canary.app/Contents/MacOS/Google\\ Chrome\\ Canary" --key-file path/to/wallet-data-files-updater.pem
 
 import commander from 'commander'
 import fs from 'fs-extra'
+import os from 'os'
 import path from 'path'
 import util from '../lib/util.js'
+import { fetchWalletLists } from '../lib/walletLists.js'
 
-const stageFiles = (version, outputDir) => {
-  util.stageDir(getPackageDir(), getOriginalManifest(), version, outputDir)
-
-  fs.unlinkSync(path.join(outputDir, 'package.json'))
-}
-
-const getPackageDir = () => {
-  return path.join('node_modules', 'brave-wallet-lists')
-}
-
-const getOriginalManifest = () => {
-  return path.join(getPackageDir(), 'manifest.json')
-}
-
-const postNextVersionWork = (key, publisherProofKey, binary, localRun, version) => {
+const postNextVersionWork = (key, publisherProofKey, publisherProofKeyAlt, binary, localRun, version, walletListsDir) => {
   const componentType = 'wallet-data-files-updater'
   const stagingDir = path.join('build', componentType)
   const crxFile = path.join(stagingDir, `${componentType}.crx`)
@@ -32,33 +20,35 @@ const postNextVersionWork = (key, publisherProofKey, binary, localRun, version) 
   if (!localRun) {
     privateKeyFile = !fs.lstatSync(key).isDirectory() ? key : path.join(key, `${componentType}.pem`)
   }
-  stageFiles(version, stagingDir)
+  util.stageDir(walletListsDir, path.join(walletListsDir, 'manifest.json'), version, stagingDir)
   if (!localRun) {
     util.generateCRXFile(binary, crxFile, privateKeyFile, publisherProofKey,
-      stagingDir)
+      publisherProofKeyAlt, stagingDir)
   }
   console.log(`Generated ${crxFile} with version number ${version}`)
 }
 
-const processDATFile = (binary, endpoint, region, key, publisherProofKey, localRun) => {
-  const originalManifest = getOriginalManifest()
-  const parsedManifest = util.parseManifest(originalManifest)
-  const id = util.getIDFromBase64PublicKey(parsedManifest.key)
+// Fetches and verifies the wallet data files in the same run that packages
+// them, so nothing unverified can be signed.
+const processDATFile = async (binary, endpoint, region, key, publisherProofKey, publisherProofKeyAlt, localRun) => {
+  const walletListsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-lists-'))
+  try {
+    const { tag, addressCount } = await fetchWalletLists(walletListsDir)
+    console.log(`Fetched and verified brave/wallet-lists ${tag} (${addressCount} prohibited addresses)`)
 
-  if (!localRun) {
-    util.getNextVersion(endpoint, region, id).then((version) => {
-      postNextVersionWork(key, publisherProofKey,
-        binary, localRun, version)
-    })
-  } else {
-    postNextVersionWork(key, publisherProofKey,
-      binary, localRun, '1.0.0')
+    const parsedManifest = util.parseManifest(path.join(walletListsDir, 'manifest.json'))
+    const id = util.getIDFromBase64PublicKey(parsedManifest.key)
+    const version = localRun ? '1.0.0' : await util.getNextVersion(endpoint, region, id)
+    postNextVersionWork(key, publisherProofKey, publisherProofKeyAlt,
+      binary, localRun, version, walletListsDir)
+  } finally {
+    fs.rmSync(walletListsDir, { recursive: true, force: true })
   }
 }
 
 const processJob = (commander, keyParam) => {
-  processDATFile(commander.binary, commander.endpoint,
-    commander.region, keyParam, commander.publisherProofKey,
+  return processDATFile(commander.binary, commander.endpoint,
+    commander.region, keyParam, commander.publisherProofKey, commander.publisherProofKeyAlt,
     commander.localRun)
 }
 
@@ -85,7 +75,7 @@ if (!commander.localRun) {
 
 if (!commander.localRun) {
   util.createTableIfNotExists(commander.endpoint, commander.region).then(() => {
-    processJob(commander, keyParam)
+    return processJob(commander, keyParam)
   })
 } else {
   processJob(commander, keyParam)

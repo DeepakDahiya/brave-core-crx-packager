@@ -30,7 +30,7 @@ async function generateNTPSponsoredImages (dataUrl, targetComponents) {
     const targetResourceDir = path.join(rootResourceDir, regionPlatformName)
     mkdirp.sync(targetResourceDir)
     const regionPlatformPath = regionPlatformName.replace('-', '/')
-    const sourceJsonFileUrl = `${dataUrl}${regionPlatformPath}/photo.json`
+    const sourceJsonFileUrl = `${dataUrl}${regionPlatformPath}/assets.json`
     await ntpUtil.prepareAssets(sourceJsonFileUrl, targetResourceDir)
   }
 }
@@ -38,7 +38,7 @@ async function generateNTPSponsoredImages (dataUrl, targetComponents) {
 util.installErrorHandlers()
 
 commander
-  .option('-d, --data-url <url>', 'url that refers to data that has ntp sponsored images')
+  .option('-d, --data-url <url>', 'https: or s3: url that refers to data that has ntp sponsored images')
   .option('-t, --target-regions <regions>', 'Comma separated list of regions that should generate SI component. For example: "AU-android,US-desktop,GB-ios"', '')
   .option('-u, --excluded-target-regions <regions>', 'Comma separated list of regions that should not generate SI component. For example: "AU-android,US-desktop,GB-ios"', '')
   .parse(process.argv)
